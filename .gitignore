@@ -1,0 +1,5 @@
+/local
+/node_modules
+/screenshot
+.DS_store
+*.log

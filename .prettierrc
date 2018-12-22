@@ -1,0 +1,13 @@
+{
+    "eslintIntegration": true,
+    "tslintIntegration": true,
+    "semi": false,
+    "singleQuote": true,
+    "Tabs": true,
+    "tabWidth": 4,
+    "arrowParens": "avoid",
+    "trailingComma": "none",
+    "jsxBracketSameLine": false,
+    "printWidth": 120,
+    "proseWrap": "preserve"
+}
