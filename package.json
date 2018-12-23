@@ -2,7 +2,8 @@
   "name": "download-note.youdao.com",
   "version": "1.0.0",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test:mkdir": "node test/mkdir.js"
   },
   "main": "index.js",
   "author": "ICELI <woticeli@gmail.com>",

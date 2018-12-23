@@ -1,11 +1,17 @@
 const fs = require('fs')
+const path = require('path')
+const { URLSearchParams } = require('url')
 const puppeteer = require('puppeteer')
 const argv = require('yargs').argv
 
 const { HOST, UA } = require('./config')
-const { getCookies } = require('./util/util')
-
+const { getCookies, mkdirsSync } = require('./util/util')
 const cookies = getCookies()
+const CACHE_DATA = new Map()
+
+let rootId
+let cstk = (cookies.find(item => item.name === 'YNOTE_CSTK') || {}).value // c[1] 预设cookie从cookie中获取cstk
+const xhrUrl = `https://note.youdao.com/yws/api/personal/sync?method=download&keyfrom=web&cstk=${cstk}`
 
 ;(async () => {
     console.log('启动浏览器')
@@ -24,62 +30,105 @@ const cookies = getCookies()
     // 必须在emulate后
     await page.setUserAgent(UA)
 
-    // c[1] 预设cookie从cookie中获取cstk
-    let cstk = (cookies.find(item => item.name === 'YNOTE_CSTK') || {}).value
     const download = fileEntry => {
         const { id, name, version, transactionTime } = fileEntry
-        const url = `https://note.youdao.com/yws/api/personal/sync?method=download&fileId=${id}&version=${version}&cstk=${cstk}&keyfrom=web`
-        
+
+        // console.log('download', id)
         // TODO: 方式二 xhr获取文件内容fs写入本地 方便还原目录
-        console.log(url)
+        return page.evaluate((xhrUrl, id, cstk) => {
+            const formData = `fileId=${id}&version=-1&read=true&cstk=${cstk}`
+            const oReq = new XMLHttpRequest()
+
+            oReq.open('post', xhrUrl, true)
+            oReq.setRequestHeader("Content-type", "application/x-www-form-urlencoded")
+            oReq.send(formData)
+        }, xhrUrl, id, cstk)
+
+        const url = `https://note.youdao.com/yws/api/personal/sync?method=download&fileId=${id}&version=${version}&cstk=${cstk}&keyfrom=web`
+        // console.log(url)
         // 方式一直接下载
         return page.goto(url)
     }
     const downloadDir = fileEntry => {
         const { id, name, version, transactionTime } = fileEntry
         const url = `https://note.youdao.com/yws/api/personal/file/${id}?all=true&f=true&len=${100}&sort=2&isReverse=false&method=listPageByParentId&keyfrom=web&cstk=${cstk}`
-        
-        console.log(url)
-        return page.evaluate((x) => {
-            var oReq = new XMLHttpRequest();
-            oReq.open("get", x, true);
-            oReq.send();
-        }, url);
+
+        // console.log(url)
+        return page.evaluate(x => {
+            var oReq = new XMLHttpRequest()
+            oReq.open('get', x, true)
+            oReq.send()
+        }, url)
     }
 
-    page.on('response', resp => {
+    const getPathById = (id, pathArray) => {
+        if (id === rootId) {
+            const filePath = ['.', 'download', rootId, '我的文件夹'].concat(pathArray).join('/')
+
+            return filePath
+        }
+
+        const fileEntry = CACHE_DATA.get(id)
+
+        pathArray.unshift(fileEntry.name)
+        return getPathById(fileEntry.parentId, pathArray)
+    }
+
+    page.on('response', async resp => {
         const url = resp.url()
 
+        if (url === xhrUrl) {
+            const postData = resp.request().postData()
+            const urlData = new URLSearchParams(postData)
+            const fileId = urlData.get('fileId')
+
+            if (!CACHE_DATA.get(fileId)) {
+                return false
+            }
+            const filePath = getPathById(fileId, [])
+            mkdirsSync(path.dirname(filePath))
+
+            console.log(postData, fileId, filePath)
+            const buffer = await resp.buffer()
+            fs.writeFileSync(`${filePath}`, buffer)
+        }
+
         if (url.indexOf('method=listPageByParentId') !== -1) {
-            const rootId = url.match(/\/file\/(.*)\?/i)[1]
-            
+            // c[3] 我的文件夹 根目录
+            if (!rootId) {
+                rootId = url.match(/\/file\/(.*)\?/i)[1]
+            }
+
             // c[2] 手动登录url获取cstk
             if (!cstk) {
                 cstk = url.match(/\&cstk=([^#&]*)/i)[1]
             }
-            resp.json().then(async data => {
-                // 我的文件夹
-                console.log(rootId, data)
-                if (data.count === 0) {
-                    console.log('空文件夹')
-                    return false
-                }
-                for (let item of data.entries) {
-                    if (item.fileMeta.storeAsWholeFile) {
-                        // 只下载markdown文件
-                        if (item.fileMeta.title.endsWith('.md')) {
-                            await download(item.fileEntry).catch(e => {
-                                //console.log(e)
-                            })
-                        }
-                    } else {
-                        await downloadDir(item.fileEntry)
-                    }
-                }
 
-            }).catch(error => {
-                // console.log(error)
-            })
+            resp.json()
+                .then(async data => {
+                    // 我的文件夹
+                    // console.log(rootId, data)
+                    if (data.count === 0) {
+                        console.log('空文件夹')
+                        return false
+                    }
+                    for (let item of data.entries) {
+                        CACHE_DATA.set(item.fileEntry.id, item.fileEntry)
+                        if (item.fileMeta.storeAsWholeFile) {
+                            // 只下载markdown文件
+                            if (item.fileMeta.title.endsWith('.md')) {
+                                await download(item.fileEntry).catch(e => {
+                                    //console.log(e)
+                                })
+                            }
+                        } else {
+                            await downloadDir(item.fileEntry)
+                        }
+                    }
+                })
+                .catch(error => {
+                    // console.log(error)
+                })
         }
     })
 

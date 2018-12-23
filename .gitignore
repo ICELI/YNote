@@ -1,4 +1,5 @@
 /local
+/download
 /node_modules
 /screenshot
 .DS_store
