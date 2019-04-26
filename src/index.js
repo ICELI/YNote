@@ -8,6 +8,7 @@ const { HOST, UA } = require('./config')
 const { getCookies, mkdirsSync, getXhrUrl } = require('./util/util')
 const cookies = getCookies()
 const CACHE_DATA = new Map()
+const TAGS = {}
 
 let rootId
 let cstk = (cookies.find(item => item.name === 'YNOTE_CSTK') || {}).value // c[1] 预设cookie从cookie中获取cstk
@@ -80,8 +81,38 @@ let xhrUrl = getXhrUrl(cstk)
         return getPathById(fileEntry.parentId, pathArray)
     }
 
+    const getBlogInfo = id => {
+        const fileEntry = CACHE_DATA.get(id)
+        const tagsArr = fileEntry.tags ? fileEntry.tags.split(',') : []
+        const tags = tagsArr.map(item => ` - ${TAGS[item]}`).join('\n')
+        return new Buffer(`
+---
+title: ${fileEntry.name.replace('.md', '')}
+date: ${new Date(fileEntry.createTimeForSort * 1000)}
+tags:
+${tags}
+---
+
+`)
+    }
+
     page.on('response', async resp => {
         const url = resp.url()
+
+        // 获取标签
+        if (url.indexOf('https://note.youdao.com/yws/mapi/tag?keyfrom=web&cstk=') !== -1) {
+            resp.json()
+                .then(async data => {
+                    if (Array.isArray(data.tags)) {
+                        data.tags.forEach(item => {
+                            TAGS[item.id] = item.name
+                        })
+                    }
+                })
+                .catch(error => {
+                    // console.log(error)
+                })
+        }
 
         if (url === xhrUrl) {
             const postData = resp.request().postData()
@@ -95,7 +126,11 @@ let xhrUrl = getXhrUrl(cstk)
             mkdirsSync(path.dirname(filePath))
 
             console.log(postData, fileId, filePath)
-            const buffer = await resp.buffer()
+            let buffer = await resp.buffer()
+            // 添加文档信息 hexo next
+            if (argv.blog) {
+                buffer = Buffer.concat([getBlogInfo(fileId), buffer])
+            }
             fs.writeFileSync(`${filePath}`, buffer)
         }
 
