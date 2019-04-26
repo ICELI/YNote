@@ -3,7 +3,7 @@ const path = require('path')
 const o777 = parseInt('0777', 8)
 const { COOKIE } = require('../config')
 
-exports.getCookies = () => {
+const getCookies = () => {
     return !COOKIE
         ? []
         : COOKIE.split('; ').map(element => {
@@ -62,4 +62,10 @@ const mkdirsSync = (p, opts, made) => {
     return made
 }
 
-exports.mkdirsSync = mkdirsSync
+const getXhrUrl = cstk => `https://note.youdao.com/yws/api/personal/sync?method=download&keyfrom=web&cstk=${cstk}`
+
+module.exports = {
+    getCookies,
+    mkdirsSync,
+    getXhrUrl
+}

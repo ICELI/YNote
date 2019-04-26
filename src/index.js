@@ -5,13 +5,13 @@ const puppeteer = require('puppeteer')
 const argv = require('yargs').argv
 
 const { HOST, UA } = require('./config')
-const { getCookies, mkdirsSync } = require('./util/util')
+const { getCookies, mkdirsSync, getXhrUrl } = require('./util/util')
 const cookies = getCookies()
 const CACHE_DATA = new Map()
 
 let rootId
 let cstk = (cookies.find(item => item.name === 'YNOTE_CSTK') || {}).value // c[1] 预设cookie从cookie中获取cstk
-const xhrUrl = `https://note.youdao.com/yws/api/personal/sync?method=download&keyfrom=web&cstk=${cstk}`
+let xhrUrl = getXhrUrl(cstk)
 
 ;(async () => {
     console.log('启动浏览器')
@@ -35,20 +35,26 @@ const xhrUrl = `https://note.youdao.com/yws/api/personal/sync?method=download&ke
 
         // console.log('download', id)
         // TODO: 方式二 xhr获取文件内容fs写入本地 方便还原目录
-        return page.evaluate((xhrUrl, id, cstk) => {
-            const formData = `fileId=${id}&version=-1&read=true&cstk=${cstk}`
-            const oReq = new XMLHttpRequest()
+        return page.evaluate(
+            (xhrUrl, id, cstk) => {
+                const formData = `fileId=${id}&version=-1&read=true&cstk=${cstk}`
+                const oReq = new XMLHttpRequest()
 
-            oReq.open('post', xhrUrl, true)
-            oReq.setRequestHeader("Content-type", "application/x-www-form-urlencoded")
-            oReq.send(formData)
-        }, xhrUrl, id, cstk)
+                oReq.open('post', xhrUrl, true)
+                oReq.setRequestHeader('Content-type', 'application/x-www-form-urlencoded')
+                oReq.send(formData)
+            },
+            xhrUrl,
+            id,
+            cstk
+        )
 
         const url = `https://note.youdao.com/yws/api/personal/sync?method=download&fileId=${id}&version=${version}&cstk=${cstk}&keyfrom=web`
         // console.log(url)
         // 方式一直接下载
         return page.goto(url)
     }
+
     const downloadDir = fileEntry => {
         const { id, name, version, transactionTime } = fileEntry
         const url = `https://note.youdao.com/yws/api/personal/file/${id}?all=true&f=true&len=${100}&sort=2&isReverse=false&method=listPageByParentId&keyfrom=web&cstk=${cstk}`
@@ -102,6 +108,7 @@ const xhrUrl = `https://note.youdao.com/yws/api/personal/sync?method=download&ke
             // c[2] 手动登录url获取cstk
             if (!cstk) {
                 cstk = url.match(/\&cstk=([^#&]*)/i)[1]
+                xhrUrl = getXhrUrl(cstk)
             }
 
             resp.json()
